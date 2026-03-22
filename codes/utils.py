@@ -163,6 +163,9 @@ def cal_cost(response_json, model_name):
         "gpt-4.1-nano": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
         "gpt-4.1-nano-2025-04-14": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
 
+        # gpt-5-mini
+        "gpt-5-mini": {"input": 0.25, "cached_input": 0.025, "output": 2.00},
+
         # gpt-4.5-preview
         "gpt-4.5-preview": {"input": 75.00, "cached_input": 37.50, "output": 150.00},
         "gpt-4.5-preview-2025-02-27": {"input": 75.00, "cached_input": 37.50, "output": 150.00},
@@ -423,15 +426,20 @@ def read_python_files(directory):
   
 
 def extract_json_from_string(text):
-    # Extract content inside ```yaml\n...\n```
+    # Extract content inside ```json\n...\n```
     match = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
 
     if match:
         yaml_content = match.group(1)
         return yaml_content
-    else:
-        print("No JSON content found.")
-        return ""
+    
+    # Fallback to general JSON braces matching
+    match = re.search(r"(\{.*\})", text, re.DOTALL)
+    if match:
+        return match.group(1)
+
+    print("No JSON content found.")
+    return ""
 
 
 def get_now_str():
@@ -440,3 +448,139 @@ def get_now_str():
     now = now.split(".")[0]
     now = now.replace("-","").replace(" ","_").replace(":","")
     return now # now - "20250427_205124"
+
+# --- New Helper Functions for Refactoring ---
+
+def load_json_file(file_path):
+    """Safely load a JSON file."""
+    if not os.path.exists(file_path):
+        return None
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[Utils] Error loading JSON {file_path}: {e}")
+        return None
+
+def save_json_file(data, file_path):
+    """Safely save data to a JSON file."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"[Utils] Saved JSON to {file_path}")
+    except Exception as e:
+        print(f"[Utils] Error saving JSON {file_path}: {e}")
+
+def resolve_citations_in_text(text, bib_data):
+    """
+    Replace citation markers like [1] or [1, 2] with full titles using bib_data.
+    
+    Args:
+        text (str): The text with citation markers.
+        bib_data (dict): Dictionary where keys are citation IDs.
+    
+    Returns:
+        str: Text with citations resolved.
+    """
+    if not text or not bib_data:
+        return text
+
+    # Helper to resolve a single ID
+    def get_title(key):
+        entry = bib_data.get(key) or bib_data.get(str(key))
+        if not entry:
+            return None
+        if isinstance(entry, dict):
+            return entry.get('title', 'Unknown Title')
+        return str(entry)
+
+    def replace_match(match):
+        citation_content = match.group(1) 
+        refs = [c.strip() for c in re.split(r'[,;]', citation_content)]
+        resolved_titles = []
+        for r in refs:
+            title = get_title(r)
+            if title:
+                resolved_titles.append(f"Ref: {title}")
+        
+        if resolved_titles:
+            return f" ({'; '.join(resolved_titles)}) "
+        return match.group(0)
+
+    pattern = r'\[([0-9a-zA-Z,\s\-]+)\]' 
+    return re.sub(pattern, replace_match, text)
+
+def resolve_s2orc_citations(text, cite_spans, bib_data):
+    """
+    Resolves citations within a paragraph using S2ORC cite_spans.
+    Replaces original citation text (e.g., "(Lin, 2004)") with detailed info.
+    
+    Args:
+        text (str): The original paragraph text.
+        cite_spans (list): List of span objects [{'start':..., 'end':..., 'text':..., 'ref_id':...}].
+        bib_data (dict): Dictionary where keys are ref_ids and values contain 'title'.
+                         Can handle nested "bib_entries" or flat structure.
+    
+    Returns:
+        str: Text with citations resolved.
+    """
+    if not text or not cite_spans:
+        return text
+
+    # Handle bib_data structure (flat or nested under bib_entries)
+    bib_dict = bib_data
+    if isinstance(bib_data, dict) and "bib_entries" in bib_data:
+        bib_dict = bib_data["bib_entries"]
+
+    def clean_title(t):
+        if not t: return "Unknown Title"
+        return re.sub(r'\s+', ' ', str(t)).strip()
+
+    # Sort spans by start index in descending order to keep indices valid.
+    sorted_spans = sorted(cite_spans, key=lambda x: x['start'], reverse=True)
+    
+    current_text = list(text) # Mutable list of chars
+    
+    for span in sorted_spans:
+        start = span.get('start')
+        end = span.get('end')
+        ref_id = span.get('ref_id')
+        original_citation = span.get('text', '') # e.g. "(Lin, 2004)" or "[1]"
+        
+        if start is None or end is None or not ref_id or start >= len(current_text) or end > len(current_text):
+            continue
+            
+        # Get entry
+        entry = bib_dict.get(ref_id)
+        if not entry:
+            continue
+            
+        # Extract title
+        if isinstance(entry, dict):
+            title = entry.get('title')
+        else:
+            title = str(entry) # Fallback
+            
+        try:
+            cleaned_title = clean_title(title)
+            
+            # Construct replacement string
+            # Strategy: If original ends with ')' or ']', insert inside.
+            # E.g. "(Lin, 2004)" -> "(Lin, 2004; Ref: Title)"
+            if original_citation.strip().endswith((')', ']')):
+                insert_pos = -1
+                full_replacement = original_citation[:insert_pos] + f"; Ref: {cleaned_title}" + original_citation[insert_pos:]
+            else:
+                full_replacement = f"{original_citation} (Ref: {cleaned_title})"
+                
+            # Replace in list
+            # Since replace changes length, we use slice assignment
+            current_text[start:end] = list(full_replacement)
+            
+        except Exception:
+            # Skip this replacement on error
+            continue
+            
+    return "".join(current_text)
+

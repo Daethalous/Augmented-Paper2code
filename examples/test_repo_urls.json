@@ -1,0 +1,35 @@
+[
+  {
+    "query_source": "prior_paper_titles",
+    "query_term": "Time series classification from scratch with deep neural networks: A strong baseline",
+    "target_url": "https://github.com/cauchyturing/UCR_Time_Series_Classification_Deep_Learning_Baseline",
+    "confidence": 0.95,
+    "repo_meta": {
+      "stars": 453,
+      "description": "Fully Convolutional Neural Networks for state-of-the-art time series classification",
+      "readme_snippet": "These models provide a good baseline for both application for real-world data and future research in deep learning on time series. If you like end-to-end solution, use FCN or even MLP with dropout as your first baseline... Three deep neural network architectures (MLP, FCN, ResNet) are exploited to provide a fully comprehensive baseline."
+    }
+  },
+  {
+    "query_source": "prior_paper_titles",
+    "query_term": "Attention is all you need",
+    "target_url": "https://github.com/jadore801120/attention-is-all-you-need-pytorch",
+    "confidence": 0.92,
+    "repo_meta": {
+      "stars": 3412,
+      "description": "A PyTorch implementation of the Transformer model in 'Attention Is All You Need'.",
+      "readme_snippet": "# attention-is-all-you-need-pytorch\nThis is a PyTorch implementation of the Transformer model in \"Attention Is All You Need\" (Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin, arxiv, 2017). \n## Usage\nTo train the model, run `python train.py`..."
+    }
+  },
+  {
+    "query_source": "prior_paper_titles",
+    "query_term": "Model agnostic interpretability for multiple instance learning",
+    "target_url": "https://github.com/JAEarly/MILLI",
+    "confidence": 0.99,
+    "repo_meta": {
+      "stars": 13,
+      "description": "Code for the paper \"Model Agnostic Interpretability for Multiple Instance Learning\".",
+      "readme_snippet": "# MIL Model Agnostic Interpretability\nThis repo contains the code for \"Model Agnostic Interpretability for Multiple Instance Learning\". Paper: https://arxiv.org/abs/2201.11701.\n- Overview. Executable scripts can be found in the scripts directory. Source code can be found in the src directory.\n- Data. We use five custom data set implementations...\n- Models and training. The models are implemented in src/model."
+    }
+  }
+]

@@ -28,7 +28,7 @@ Our method outperforms strong baselines on both Paper2Code and PaperBench and pr
 ```bash
 pip install openai
 
-export OPENAI_API_KEY="<OPENAI_API_KEY>"
+export OPENAI_API_KEY="your_openai_api_key_here"
 
 cd scripts
 bash run.sh

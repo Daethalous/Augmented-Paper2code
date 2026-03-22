@@ -18,9 +18,15 @@ with open(f'{output_dir}/planning_trajectories.json', encoding='utf8') as f:
     traj = json.load(f)
 
 yaml_raw_content = ""
-for turn_idx, turn in enumerate(traj):
-        if turn_idx == 8:
-            yaml_raw_content = turn['content']   
+# In the new optimized format, trajectories only contains assistant responses.
+# The config yaml should be the very last assistant response.
+for turn in reversed(traj):
+    if turn.get('role') == 'assistant' and '```yaml' in turn.get('content', ''):
+        yaml_raw_content = turn['content']
+        break
+
+if not yaml_raw_content and len(traj) > 0:
+    yaml_raw_content = traj[-1]['content']
 
 if "</think>" in yaml_raw_content:
     yaml_raw_content = yaml_raw_content.split("</think>")[-1]

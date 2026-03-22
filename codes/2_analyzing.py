@@ -57,6 +57,9 @@ elif 'task_list' in task_list:
     todo_file_lst = task_list['task_list']
 elif 'task list' in task_list:
     todo_file_lst = task_list['task list']
+elif 'Logic Analysis' in task_list:
+    # Extract file list directly from Logic Analysis if Task list is missing
+    todo_file_lst = [item[0] for item in task_list['Logic Analysis'] if isinstance(item, list) and len(item) > 0]
 else:
     print(f"[ERROR] 'Task list' does not exist. Please re-generate the planning.")
     sys.exit(0)
@@ -76,62 +79,86 @@ logic_analysis_dict = {}
 for desc in task_list['Logic Analysis']:
     logic_analysis_dict[desc[0]] = desc[1]
 
-analysis_msg = [
-    {"role": "system", "content": f"""You are an expert researcher, strategic analyzer and software engineer with a deep understanding of experimental design and reproducibility in scientific research.
-You will receive a research paper in {paper_format} format, an overview of the plan, a design in JSON format consisting of "Implementation approach", "File list", "Data structures and interfaces", and "Program call flow", followed by a task in JSON format that includes "Required packages", "Required other language third-party packages", "Logic Analysis", and "Task list", along with a configuration file named "config.yaml". 
+def read_original_source_code(file_path, base_output_dir):
+    cloned_repos_dir = os.path.join(base_output_dir, "cloned_repos")
+    if not os.path.exists(cloned_repos_dir):
+        return None
+    for d in os.listdir(cloned_repos_dir):
+        if d.startswith("core_"):
+            # Try to match the exact file_path inside the cloned repo
+            target_path = os.path.join(cloned_repos_dir, d, file_path)
+            if os.path.exists(target_path):
+                with open(target_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+    return None
 
-Your task is to conduct a comprehensive logic analysis to accurately reproduce the experiments and methodologies described in the research paper. 
-This analysis must align precisely with the paper’s methodology, experimental setup, and evaluation criteria.
+def get_dynamic_prompt(todo_file_name, todo_file_desc, action_tag, original_code, core_map_content, paper_content, context_lst, config_yaml):
+    if action_tag == "EDIT" and original_code:
+        instruction = f"""INSTRUCTION:
+You are modifying an existing file as part of replicating a target research paper. 
 
-1. Align with the Paper: Your analysis must strictly follow the methods, datasets, model configurations, hyperparameters, and experimental setups described in the paper.
-2. Be Clear and Structured: Present your analysis in a logical, well-organized, and actionable format that is easy to follow and implement.
-3. Prioritize Efficiency: Optimize the analysis for clarity and practical implementation while ensuring fidelity to the original experiments.
-4. Follow design: YOU MUST FOLLOW "Data structures and interfaces". DONT CHANGE ANY DESIGN. Do not use public member functions that do not exist in your design.
-5. REFER TO CONFIGURATION: Always reference settings from the config.yaml file. Do not invent or assume any values—only use configurations explicitly provided.
-     
-"""}]
+Below is the GLOBAL REPOSITORY MAP defining the skeleton of the baseline framework:
+[GLOBAL REPO MAP START]
+{core_map_content}
+[GLOBAL REPO MAP END]
 
-def get_write_msg(todo_file_name, todo_file_desc):
-    
-    draft_desc = f"Write the logic analysis in '{todo_file_name}', which is intended for '{todo_file_desc}'."
-    if len(todo_file_desc.strip()) == 0:
-        draft_desc = f"Write the logic analysis in '{todo_file_name}'."
+Below is the ORIGINAL SOURCE CODE of the file you need to edit:
+[ORIGINAL SOURCE CODE START]
+{original_code}
+[ORIGINAL SOURCE CODE END]
 
-    write_msg=[{'role': 'user', "content": f"""## Paper
+Do NOT write code from scratch. Instead, write a highly precise "Modification Guide".
+Combine the paper's specific methodology with the provided source code and explicitly state:
+1. Which specific classes or functions must be retained.
+2. Which specific classes or functions need to be modified.
+3. Detailed logical differences (e.g., "In the `forward` function, replace operation A with operation B").
+Be analytical, actionable, and exact. Write the logic analysis for '{todo_file_name}'."""
+    else:
+        instruction = f"""INSTRUCTION:
+You are creating a newly authored file within an existing system architecture to replicate a target research paper.
+
+Below is the GLOBAL REPOSITORY MAP defining the skeleton of the underlying framework:
+[GLOBAL REPO MAP START]
+{core_map_content}
+[GLOBAL REPO MAP END]
+
+Please refer to the global repository map, configuration, and architecture plan to thoroughly design the logic for this new file '{todo_file_name}'.
+Write out the detailed module design, variable states, core function signatures, and explicit frontend/backend dependencies or inputs/outputs within the existing architecture. 
+Focus strictly on a complete analytical blueprint rather than direct line-by-line coding.
+"""
+
+    write_msg=[{'role': 'system', "content": """You are an expert researcher, strategic analyzer and software engineer with a deep understanding of experimental design and reproducibility.
+Your task is to conduct a comprehensive logic analysis to accurately reproduce the experiments described in the research paper. 
+1. Align with the Paper: Strictly follow the methods, methodologies, and setups.
+2. Be Clear and Structured: Present analysis in a logical, well-organized format.
+3. Follow design: Follow "Data structures and interfaces" strictly.
+"""},
+    {'role': 'user', "content": f"""## Target File Description
+{todo_file_desc}
+
+-----
+## Paper
 {paper_content}
 
 -----
-
 ## Overview of the plan
 {context_lst[0]}
 
 -----
-
 ## Design
 {context_lst[1]}
 
 -----
-
-## Task
-{context_lst[2]}
-
------
-
 ## Configuration file
 ```yaml
 {config_yaml}
 ```
 -----
-
-## Instruction
-Conduct a Logic Analysis to assist in writing the code, based on the paper, the plan, the design, the task and the previously specified configuration file (config.yaml). 
-You DON'T need to provide the actual code yet; focus on a thorough, clear analysis.
-
-{draft_desc}
+{instruction}
 
 -----
-
 ## Logic Analysis: {todo_file_name}"""}]
+    
     return write_msg
 
 
@@ -153,21 +180,54 @@ def api_call(msg):
 artifact_output_dir=f'{output_dir}/analyzing_artifacts'
 os.makedirs(artifact_output_dir, exist_ok=True)
 
+core_map_content = ""
+core_map_path = os.path.join(output_dir, "core_repo_map.txt")
+if os.path.exists(core_map_path):
+    with open(core_map_path, "r", encoding="utf-8") as f:
+        core_map_content = f.read()
+
 total_accumulated_cost = load_accumulated_cost(f"{output_dir}/accumulated_cost.json")
 for todo_file_name in tqdm(todo_file_lst):
     responses = []
-    trajectories = copy.deepcopy(analysis_msg)
+    trajectories = []
 
     current_stage=f"[ANALYSIS] {todo_file_name}"
-    print(current_stage)
+    print(f"\n{current_stage}")
     if todo_file_name == "config.yaml":
         continue
     
     if todo_file_name not in logic_analysis_dict:
-        # print(f"[DEBUG ANALYSIS] {paper_name} {todo_file_name} is not exist in the logic analysis")
         logic_analysis_dict[todo_file_name] = ""
         
-    instruction_msg = get_write_msg(todo_file_name, logic_analysis_dict[todo_file_name])
+    desc = logic_analysis_dict[todo_file_name]
+    
+    # Parse Action Tags
+    arch_design_context = context_lst[1] if len(context_lst) > 1 else ""
+    
+    if "[REUSE]" in desc or f"[REUSE] {todo_file_name}" in arch_design_context:
+        print(f"> Skipping {todo_file_name} (Tagged as REUSE)")
+        done_file_lst.append(todo_file_name)
+        continue
+        
+    action_tag = "CREATE"
+    if "[EDIT]" in desc or f"[EDIT] {todo_file_name}" in arch_design_context:
+        action_tag = "EDIT"
+        
+    original_code = None
+    if action_tag == "EDIT":
+        original_code = read_original_source_code(todo_file_name, output_dir)
+        if not original_code:
+            print(f"> [WARNING] Could not find local source for {todo_file_name}. Falling back to CREATE.")
+            action_tag = "CREATE"
+        else:
+            print(f"> Action: EDIT (Local source found)")
+    else:
+        print(f"> Action: CREATE")
+
+    instruction_msg = get_dynamic_prompt(
+        todo_file_name, desc, action_tag, original_code, 
+        core_map_content, paper_content, context_lst, config_yaml
+    )
     trajectories.extend(instruction_msg)
         
     completion = api_call(trajectories)
@@ -186,7 +246,9 @@ for todo_file_name in tqdm(todo_file_lst):
     total_accumulated_cost = temp_total_accumulated_cost
 
     # save
-    with open(f'{artifact_output_dir}/{todo_file_name}_simple_analysis.txt', 'w') as f:
+    analysis_file_path = f'{artifact_output_dir}/{todo_file_name}_simple_analysis.txt'
+    os.makedirs(os.path.dirname(analysis_file_path), exist_ok=True)
+    with open(analysis_file_path, 'w') as f:
         f.write(completion_json['choices'][0]['message']['content'])
 
 

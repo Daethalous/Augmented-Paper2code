@@ -48,11 +48,18 @@ def main(args):
         else:
             task_list = content_to_json(context_lst[2])
 
-        todo_file_lst = task_list['Task list']        
-        for todo_file in todo_file_lst:
-            if todo_file.endswith(".yaml"):
-                continue
-            codes += f"```python\n## File name: {todo_file}\n{target_files_dict[todo_file]}\n```\n\n"
+        # todo_file_lst = task_list['Task list']        
+        # for todo_file in todo_file_lst:
+        #     if todo_file.endswith(".yaml"):
+        #         continue
+            
+        #     if todo_file not in target_files_dict:
+        #         continue
+
+        #     codes += f"```python\n## File name: {todo_file}\n{target_files_dict[todo_file]}\n```\n\n"
+
+        for file_name, file_content in target_files_dict.items():
+            codes += f"```python\n## File name: {file_name}\n{file_content}\n```\n\n"
 
         codes += f"```yaml\n## File name: config.yaml\n{config_yaml}\n```\n\n"
     else:
@@ -108,8 +115,8 @@ def main(args):
         num_tokens = 0
     
 
-    if num_tokens > 128000:
-        print(f"[ERROR] {args.paper_name} more than 128k")
+    if num_tokens > 1000000:
+        print(f"[ERROR] {args.paper_name} more than 1000k")
         sys.exit(0)
     
 
@@ -181,9 +188,12 @@ def main(args):
         
         all_scores.append(int(score))
         rationales.append(rationale)
-        
 
-    avg_score = sum(all_scores) / len(all_scores)
+    if len(all_scores) == 0:
+        print("[ERROR] No valid scores could be parsed from the model responses.")
+        avg_score = 0
+    else:
+        avg_score = sum(all_scores) / len(all_scores)
 
     output_json= {
         "paper_name": paper_name,
